@@ -159,8 +159,8 @@ agent-java-debugger skills get agent-java-debugger   # this skill's full text
 
 Agent integration ships in two parts so that only **one skill** is loaded into the agent context:
 
-* [`skills/agent-java-debugger/SKILL.md`](skills/agent-java-debugger/SKILL.md) — the tool's own skill: breakpoints, stepping, inspection, agent-mode conventions. This is the only skill an agent registers.
-* [`skill-data/`](skill-data/) — on-demand extension content (the [`oinone` companion](skill-data/oinone/SKILL.md): gql protocol, login, pamirs-designer recipes). An agent working on an oinone project fetches it with `agent-java-debugger skills oinone` — it costs no context until needed and works offline.
+* [`skills/agent-java-debugger/SKILL.md`](https://github.com/adamancyzhang/agent-java-debugger/blob/master/skills/agent-java-debugger/SKILL.md) — the tool's own skill: breakpoints, stepping, inspection, agent-mode conventions. This is the only skill an agent registers.
+* [`skill-data/`](https://github.com/adamancyzhang/agent-java-debugger/tree/master/skill-data) — on-demand extension content (the [`oinone` companion](https://github.com/adamancyzhang/agent-java-debugger/blob/master/skill-data/oinone/SKILL.md): gql protocol, login, pamirs-designer recipes). An agent working on an oinone project fetches it with `agent-java-debugger skills oinone` — it costs no context until needed and works offline.
 
 ## Expression language (conditions, print, inspect)
 

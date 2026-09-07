@@ -11,7 +11,7 @@ parent directory.
 import os
 import re
 
-_FRONTMATTER = re.compile(r"^---\n(.*?)\n---\n(.*)$", re.DOTALL)
+_FRONTMATTER = re.compile(r"^---\r?\n(.*?)\r?\n---(?:\r?\n|$)", re.DOTALL)
 
 MAIN_SKILL = "agent-java-debugger"
 
@@ -60,7 +60,7 @@ def read_skill(name):
     if not os.path.isfile(path):
         return None
     with open(path, "r", encoding="utf-8") as f:
-        return f.read()
+        return f.read().lstrip("﻿")  # tolerate a UTF-8 BOM
 
 
 def _description(path):
@@ -69,10 +69,19 @@ def _description(path):
             text = f.read()
     except OSError:
         return ""
+    text = text.lstrip("﻿")  # tolerate a UTF-8 BOM
     m = _FRONTMATTER.match(text)
     if not m:
         return ""
+    value = None
     for line in m.group(1).splitlines():
-        if line.startswith("description:"):
-            return line[len("description:"):].strip()
-    return ""
+        match = re.match(r"^description[ \t]*:(.*)$", line)
+        if match:
+            value = match.group(1).strip()
+            break
+    if value is None:
+        return ""
+    # Strip a surrounding single/double-quote pair (YAML quoted scalar).
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+        return value[1:-1]
+    return value
