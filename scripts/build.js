@@ -10,6 +10,44 @@ const fs = require("fs");
 const path = require("path");
 
 const ROOT = path.resolve(__dirname, "..");
+
+/**
+ * Validate the YAML frontmatter of every SKILL.md (skills/ + skill-data/).
+ * The descriptions are plain scalars, so a `: ` (colon + space) inside the
+ * value breaks strict YAML parsers ("mapping values are not allowed here").
+ * Dependency-free check — the same rule the parser enforces.
+ */
+function checkFrontmatter() {
+  let bad = 0;
+  for (const dir of ["skills", "skill-data"]) {
+    const base = path.join(ROOT, dir);
+    if (!fs.existsSync(base)) continue;
+    for (const entry of fs.readdirSync(base, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const skill = path.join(base, entry.name, "SKILL.md");
+      if (!fs.existsSync(skill)) continue;
+      const text = fs.readFileSync(skill, "utf8");
+      const m = text.match(/^---\n(.*?)\n---\n/s);
+      if (!m) {
+        console.error(`build: ${skill}: no frontmatter — aborting`);
+        bad++;
+        continue;
+      }
+      for (const line of m[1].split("\n")) {
+        const kv = line.match(/^([A-Za-z][\w-]*):\s+(.*)$/);
+        if (kv && /:\s/.test(kv[2])) {
+          console.error(
+            `build: ${skill}: illegal ": " inside the ${kv[1]} value — ` +
+            `rewrite without a colon+space (strict YAML parsers reject it)`);
+          bad++;
+        }
+      }
+    }
+  }
+  if (bad) process.exit(1);
+}
+
+
 const DIST = path.join(ROOT, "dist");
 
 function copyDir(src, dst) {
@@ -44,6 +82,7 @@ function findPython() {
 }
 
 function main() {
+  checkFrontmatter();
   fs.rmSync(DIST, { recursive: true, force: true });
   copyDir(path.join(ROOT, "ajd"), path.join(DIST, "ajd"));
   copyDir(path.join(ROOT, "skills"), path.join(DIST, "skills"));
