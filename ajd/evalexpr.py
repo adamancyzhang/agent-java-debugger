@@ -159,12 +159,12 @@ class Parser:
         while self.peek()[0] == "op" and self.peek()[1] in (".", "("):
             op = self.next()[1]
             if op == "(":
-                # bare call: static/instance method in the current frame
-                if self.peek()[0] == "ident":
-                    name = self.next()[1]
-                    members.append(("implicitcall", name, self.parse_args()))
-                else:
-                    raise EvalError("expected method name in call")
+                # Bare call: the primary itself is the method name, e.g.
+                # isEmpty(), size(), foo(1, 2) — resolved on `this` with a
+                # static fallback (see _implicit_call).
+                if primary[0] != "name" or members:
+                    raise EvalError("'(' after non-method expression")
+                members.append(("implicitcall", primary[1], self.parse_args()))
                 continue
             name = self.expect("ident")[1]
             if self.peek()[0] == "op" and self.peek()[1] == "(":
@@ -174,6 +174,12 @@ class Parser:
                 members.append(("f", name))
         if not members:
             return primary
+        if primary[0] == "name" and len(members) == 1 \
+                and members[0][0] == "implicitcall":
+            # bare call `name(...)`: the name is the method, not a value —
+            # emit a dedicated node so the primary isn't resolved as a
+            # variable/class first.
+            return ("implicit", primary[1], members[0][2])
         return ("chain", primary, members)
 
     def parse_args(self):
@@ -243,20 +249,28 @@ def _eval(node, ctx):
         return _eval(node[1], ctx)
     if kind == "chain":
         return _eval_chain(ctx, node[1], node[2])
+    if kind == "implicit":
+        return _implicit_call(ctx, node[1], [_eval(a, ctx) for a in node[2]])
     if kind == "and":
         t, v = _eval(node[1], ctx)
         if t != C.TAG_BOOLEAN:
             raise EvalError(f"'&&' applied to {tag_name(t)}")
         if not v:
             return C.TAG_BOOLEAN, 0
-        return _eval(node[2], ctx)
+        t, v = _eval(node[2], ctx)
+        if t != C.TAG_BOOLEAN:
+            raise EvalError(f"'&&' applied to {tag_name(t)}")
+        return C.TAG_BOOLEAN, v
     if kind == "or":
         t, v = _eval(node[1], ctx)
         if t != C.TAG_BOOLEAN:
             raise EvalError(f"'||' applied to {tag_name(t)}")
         if v:
             return C.TAG_BOOLEAN, 1
-        return _eval(node[2], ctx)
+        t, v = _eval(node[2], ctx)
+        if t != C.TAG_BOOLEAN:
+            raise EvalError(f"'||' applied to {tag_name(t)}")
+        return C.TAG_BOOLEAN, v
     if kind == "not":
         t, v = _eval(node[1], ctx)
         if t != C.TAG_BOOLEAN:
@@ -372,13 +386,19 @@ def _read_field(ctx, cur, name):
 
 def _implicit_call(ctx, name, args):
     """Bare call: instance method on `this`, falling back to a static
-    method of the enclosing class."""
+    method of the enclosing class.  The fallback only applies when the
+    instance has no matching method — a target exception thrown by the
+    instance method must propagate, not be masked by a static retry."""
     if ctx.this is not None:
         tag, obj = ctx.this
-        try:
-            return _invoke(ctx, (tag, obj), name, args)
-        except EvalError:
-            pass
+        info = ctx.session.class_of_object(obj)
+        if info is not None:
+            try:
+                resolve_method(ctx.session, info, name, args, static=False)
+            except EvalError:
+                pass
+            else:
+                return _invoke(ctx, (tag, obj), name, args)
     info = ctx.session.class_info(ctx.class_id)
     if info is None:
         raise EvalError(f"cannot resolve bare call '{name}'")
@@ -391,8 +411,8 @@ def _invoke(ctx, cur, name, args):
         if info is None:
             raise EvalError("class unloaded")
         method_id, decl = resolve_method(ctx.session, info, name, args, static=True)
-        tag, value = C.class_invoke_method(ctx.session.conn, decl.type_id,
-                                           ctx.thread_id, method_id, args)
+        tag, value, exception_obj = C.class_invoke_method(
+            ctx.session.conn, decl.type_id, ctx.thread_id, method_id, args)
     else:
         tag, obj = cur
         if not is_object_tag(tag) or obj == 0:
@@ -401,11 +421,16 @@ def _invoke(ctx, cur, name, args):
         if info is None:
             raise EvalError(f"method '{name}' on collected object")
         method_id, decl = resolve_method(ctx.session, info, name, args, static=False)
-        tag, value = C.object_invoke_method(ctx.session.conn, obj, ctx.thread_id,
-                                            decl.type_id, method_id, args)
+        tag, value, exception_obj = C.object_invoke_method(
+            ctx.session.conn, obj, ctx.thread_id, decl.type_id, method_id, args)
     # The invocation runs a wrapper frame on the target thread's stack,
     # which renumbers its frame ids — drop the cached frame list.
     ctx.session.current_frames = None
+    if exception_obj:
+        # The reply's exception slot is authoritative: the invoked method
+        # threw in the target.  (The is_throwable fallback below catches
+        # VMs that surface the exception as the return value instead.)
+        raise EvalError(EXCEPTION_MESSAGE(ctx.session, exception_obj))
     if tag == C.TAG_OBJECT and value and is_throwable(ctx.session, value):
         raise EvalError(EXCEPTION_MESSAGE(ctx.session, value))
     return tag, value
@@ -414,17 +439,30 @@ def _invoke(ctx, cur, name, args):
 # ------------------------------------------------------------- operators
 
 def _promote(t1, v1, t2, v2):
-    """Numeric promotion: returns (tag, v1, v2)."""
+    """Java binary numeric promotion: double > float > long > int.
+
+    byte/short/char never survive the promotion — any mix of the four
+    integral types promotes to int (max() would tie-break to the first
+    operand, which is wrong)."""
     if t1 not in _NUMERIC or t2 not in _NUMERIC:
         raise EvalError(f"operator on non-numeric operands ({tag_name(t1)}, {tag_name(t2)})")
-    target = max(t1, t2, key=lambda t: _NUMERIC[t])
+    if C.TAG_DOUBLE in (t1, t2):
+        target = C.TAG_DOUBLE
+    elif C.TAG_FLOAT in (t1, t2):
+        target = C.TAG_FLOAT
+    elif C.TAG_LONG in (t1, t2):
+        target = C.TAG_LONG
+    else:
+        target = C.TAG_INT
     if target in (C.TAG_INT, C.TAG_LONG):
         return target, int(v1), int(v2)
     return target, float(v1), float(v2)
 
 
 def _java_div(a, b):
-    """Java integer division truncates toward zero."""
+    """Java integer division truncates toward zero; div by zero throws."""
+    if b == 0:
+        raise EvalError("ArithmeticException: / by zero")
     q = abs(a) // abs(b)
     return -q if (a < 0) != (b < 0) else q
 
@@ -482,6 +520,10 @@ def _binop(op, lv, rv, ctx):
             r = a % b
     else:
         raise EvalError(f"unknown operator {op}")
+    if t == C.TAG_INT:
+        r = ((r + 0x80000000) % 0x100000000) - 0x80000000  # 32-bit wrap
+    elif t == C.TAG_LONG:
+        r = ((r + 0x8000000000000000) % 0x10000000000000000) - 0x8000000000000000
     return t, r
 
 

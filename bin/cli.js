@@ -45,7 +45,7 @@ function findPython() {
       }
       process.stderr.write(
         `agent-java-debugger: found ${cmd} ${found.version}, but Python >= 3.10 is required\n`);
-      return null;
+      continue;
     }
   }
   process.stderr.write(

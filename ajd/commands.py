@@ -296,7 +296,11 @@ def class_superclass(conn, class_id):
 
 
 def class_invoke_method(conn, class_id, thread_id, method_id, args):
-    """Invoke a static method; returns (tag, value)."""
+    """Invoke a static method; returns (tag, value, exception_obj).
+
+    The JDWP reply carries the return value AND the thrown exception —
+    reading both is what lets callers surface target exceptions instead
+    of silently presenting a null return."""
     data = (_pack_id(conn, "reference_type_id_size", class_id)
             + _pack_id(conn, "object_id_size", thread_id)
             + _pack_id(conn, "method_id_size", method_id)
@@ -306,7 +310,9 @@ def class_invoke_method(conn, class_id, thread_id, method_id, args):
     if conn.long_format:
         data += struct.pack(">I", 0)  # invoke options (JDWP 1.6+)
     r = JDWPReader(conn.command(jdwp.CMDSET_CLASS_TYPE, 3, data), conn)
-    return r.read_value()
+    tag, value = r.read_value()
+    _exc_tag, exception_obj = r.read_value()
+    return tag, value, exception_obj
 
 
 def object_reference_type(conn, obj_id):
@@ -324,7 +330,11 @@ def object_get_values(conn, obj_id, field_ids):
 
 
 def object_invoke_method(conn, obj_id, thread_id, class_id, method_id, args):
-    """Invoke an instance method; returns (tag, value)."""
+    """Invoke an instance method; returns (tag, value, exception_obj).
+
+    The JDWP reply carries the return value AND the thrown exception —
+    reading both is what lets callers surface target exceptions instead
+    of silently presenting a null return."""
     data = (_pack_id(conn, "object_id_size", obj_id)
             + _pack_id(conn, "object_id_size", thread_id)
             + _pack_id(conn, "reference_type_id_size", class_id)
@@ -335,7 +345,9 @@ def object_invoke_method(conn, obj_id, thread_id, class_id, method_id, args):
     if conn.long_format:
         data += struct.pack(">I", 0)  # invoke options (JDWP 1.6+)
     r = JDWPReader(conn.command(jdwp.CMDSET_OBJECT_REFERENCE, 6, data), conn)
-    return r.read_value()
+    tag, value = r.read_value()
+    _exc_tag, exception_obj = r.read_value()
+    return tag, value, exception_obj
 
 
 def string_value(conn, obj_id):

@@ -8,7 +8,8 @@ Breakpoint flavors (chosen per breakpoint at add time, IDEA-style):
 * thread filter ``--thread <id|name>`` — only fires for one specific thread
 * conditional   ``--condition EXPR`` — expression evaluated in the hitting
   thread's top frame; false auto-resumes (requires suspend thread/all)
-* once          ``--once``           — auto-removed after the first hit
+* once          ``--once``           — auto-removed after the first stop it
+  produces (with a condition, that's the first condition-true hit)
 
 Breakpoints may target a loaded or not-yet-loaded class: pending
 breakpoints are resolved against CLASS_PREPARE events, so they survive
@@ -180,16 +181,31 @@ class BreakpointManager:
 
     def _set_requests(self, bp, locations):
         policy = SUSPEND_POLICIES[bp.suspend]
-        for class_id, method_id, index in locations:
-            loc = EV.Location(C.REFTAG_CLASS, class_id, method_id, index)
-            mods = [EV.mod_location_only(loc, self.session.conn)]
-            if bp.thread_id is not None:
-                mods.append(EV.mod_thread_only(
-                    bp.thread_id, self.session.conn.id_sizes.object_id_size))
-            req = C.event_request_set(self.session.conn, EV.EV_BREAKPOINT,
-                                      policy, mods)
-            bp.request_ids.add(req)
-            self.by_request[req] = bp
+        registered = []
+        try:
+            for class_id, method_id, index in locations:
+                loc = EV.Location(C.REFTAG_CLASS, class_id, method_id, index)
+                mods = [EV.mod_location_only(loc, self.session.conn)]
+                if bp.thread_id is not None:
+                    mods.append(EV.mod_thread_only(
+                        bp.thread_id, self.session.conn.id_sizes.object_id_size))
+                req = C.event_request_set(self.session.conn, EV.EV_BREAKPOINT,
+                                          policy, mods)
+                registered.append(req)
+                bp.request_ids.add(req)
+                self.by_request[req] = bp
+        except JDWPError:
+            # Roll back partial registrations — a half-set breakpoint would
+            # fire anonymously with no way to disable or remove it.
+            for req in registered:
+                bp.request_ids.discard(req)
+                self.by_request.pop(req, None)
+                try:
+                    C.event_request_clear(self.session.conn, EV.EV_BREAKPOINT,
+                                          req)
+                except JDWPError:
+                    pass
+            raise
 
     def resolve_pending(self):
         """Retry all unresolved breakpoints (called on CLASS_PREPARE)."""

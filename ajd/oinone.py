@@ -78,6 +78,11 @@ def _jar(cookie_jar):
 def _save_jar(jar, cookie_jar):
     os.makedirs(os.path.dirname(cookie_jar) or ".", exist_ok=True)
     jar.save(ignore_discard=True, ignore_expires=True)
+    # The jar holds a live session cookie — never world-readable.
+    try:
+        os.chmod(cookie_jar, 0o600)
+    except OSError:
+        pass
 
 
 def _request(url, query, variables=None, headers=None, cookie_jar=None,
@@ -123,6 +128,17 @@ def login(url, login_name, password, pic_code=None, cookie_jar=None,
     response = _request(url, query, cookie_jar=cookie_jar, headers=headers,
                         timeout=timeout)
     return response
+
+
+def login_error_code(response):
+    """errorCode of the login mutation result; None when absent."""
+    try:
+        data = (response or {}).get("data") or {}
+        model = data.get(LOGIN_MODEL + "Mutation") or {}
+        result = model.get(LOGIN_FUNCTION) or {}
+        return result.get("errorCode")
+    except (AttributeError, TypeError):
+        return None
 
 
 def exec_function(url, model, function, args=None, fields=None,

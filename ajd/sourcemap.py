@@ -18,13 +18,17 @@ class SourceMap:
     def find_file(self, filename_or_path):
         """Locate a source file across the configured source dirs.
 
-        Accepts either a bare file name or a (possibly partial) path; the
-        first suffix match wins.  Returns an absolute path or None.
+        Accepts either a bare file name or a (possibly partial) path.
+        An exact basename match wins (`UserService.java` must not resolve
+        to `NotUserService.java`); a suffix match is only the fallback.
+        Returns an absolute path or None.
         """
         key = filename_or_path
         if key in self._find_cache:
             return self._find_cache[key]
         result = None
+        fallback = None
+        want_base = os.path.basename(filename_or_path)
         for root in self.dirs:
             for dirpath, dirnames, filenames in os.walk(root):
                 # Skip build output and VCS noise.
@@ -33,13 +37,19 @@ class SourceMap:
                                             "build", "dist", ".idea")]
                 for fname in filenames:
                     full = os.path.join(dirpath, fname)
-                    if full.endswith(filename_or_path):
+                    if not full.endswith(filename_or_path):
+                        continue
+                    if os.path.basename(full) == want_base:
                         result = full
                         break
+                    if fallback is None:
+                        fallback = full
                 if result:
                     break
             if result:
                 break
+        if result is None:
+            result = fallback
         self._find_cache[key] = result
         return result
 

@@ -38,6 +38,11 @@ def _build_parser():
                         help="seconds to wait for the next stop (default 60)")
     attach.add_argument("--cmd-timeout", type=float, default=15.0,
                         help="per-command reply timeout (default 15)")
+    attach.add_argument("--resume-after", type=float, default=60.0,
+                        help="auto-resume a held stop after N seconds of "
+                             "inactivity, so request threads are never "
+                             "blocked by a forgotten breakpoint "
+                             "(default 60; 0 disables)")
 
     gql = sub.add_parser("gql", help="POST a GraphQL request (e2e trigger)")
     gql.add_argument("--url", required=True)
@@ -104,6 +109,7 @@ def _build_parser():
     run.add_argument("--json", action="store_true")
     run.add_argument("--timeout", type=float, default=60.0)
     run.add_argument("--cmd-timeout", type=float, default=15.0)
+    run.add_argument("--resume-after", type=float, default=60.0)
     run.add_argument("--suspend", action="store_true",
                      help="suspend=y: the JVM waits for the debugger before "
                           "running main")
@@ -123,7 +129,9 @@ def cmd_attach(args):
               file=sys.stderr)
         return 2
     from .repl import Runner, run_commands
-    runner = Runner(session, json_mode=args.json)
+    runner = Runner(session, json_mode=args.json,
+                    resume_after=args.resume_after)
+    interrupted = False
     try:
         if args.exec:
             runner.announce()
@@ -131,16 +139,28 @@ def cmd_attach(args):
         else:
             runner.repl()
     except KeyboardInterrupt:
-        pass
+        interrupted = True
     finally:
+        runner.close()
         session.close()
+    if interrupted:
+        return 130  # 128 + SIGINT — scripts can distinguish Ctrl-C
+    if runner.failures:
+        # agent mode relies on the exit code: any command error or wait
+        # timeout makes the script fail instead of reporting success
+        return 1
     return 0
 
 
 def cmd_gql(args):
     from .gql import send_gql
-    variables = json.loads(args.variables) if args.variables else None
-    headers = json.loads(args.headers) if args.headers else None
+    try:
+        variables = json.loads(args.variables) if args.variables else None
+        headers = json.loads(args.headers) if args.headers else None
+    except ValueError as exc:
+        print(f"ajd: invalid JSON in --vars/--headers: {exc}",
+              file=sys.stderr)
+        return 2
     try:
         response = send_gql(args.url, args.query, variables=variables,
                             headers=headers, timeout=args.timeout)
@@ -153,7 +173,11 @@ def cmd_gql(args):
 
 def cmd_oinone(args):
     from . import oinone
-    headers = json.loads(args.headers) if getattr(args, "headers", None) else None
+    try:
+        headers = json.loads(args.headers) if getattr(args, "headers", None) else None
+    except ValueError as exc:
+        print(f"ajd: invalid JSON in --headers: {exc}", file=sys.stderr)
+        return 2
     cookie_jar = args.cookie_jar or oinone.DEFAULT_COOKIE_JAR
     try:
         if args.oinone_command == "login":
@@ -161,6 +185,11 @@ def cmd_oinone(args):
                                     pic_code=args.pic_code,
                                     cookie_jar=cookie_jar, headers=headers,
                                     timeout=args.timeout)
+            code = oinone.login_error_code(response)
+            if code not in (None, 0):
+                print(f"ajd: login failed (errorCode={code})",
+                      file=sys.stderr)
+                return 1
         elif args.oinone_command == "exec":
             fn_args = json.loads(args.args) if args.args else None
             if fn_args is not None and not isinstance(fn_args, dict):

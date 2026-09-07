@@ -10,6 +10,7 @@ import json
 import re
 import shlex
 import sys
+import threading
 import time
 
 _INSPECT_DEPTH_RE = re.compile(r"^(.*?)(?:\s+--depth\s+(\d+))?$")
@@ -26,8 +27,12 @@ VM_DEAD_MSG = "[target VM exited]"
 
 
 class Runner:
-    def __init__(self, session: DebuggerSession, json_mode=False, out=None):
+    def __init__(self, session: DebuggerSession, json_mode=False, out=None,
+                 resume_after=60.0):
+        self.failures = 0                  # errors/timeouts seen this session
         self.session = session
+        self._resume_after = resume_after  # stop-hold guard (0 disables)
+        self._hold_timer = None
         self.json_mode = json_mode
         self.out = out or sys.stdout
         self.interactive = not json_mode and hasattr(self.out, "isatty") \
@@ -45,10 +50,52 @@ class Runner:
             print(json.dumps(obj, ensure_ascii=False), file=self.out, flush=True)
 
     def error(self, message):
+        self.failures += 1
         if self.json_mode:
             self.j({"type": "error", "message": message})
         else:
             print(f"error: {message}", file=self.out)
+
+    # ---------------------------------------------------- stop-hold guard
+
+    def _arm_hold_guard(self):
+        """Arm the auto-resume timer for a freshly presented stop.
+
+        If the driving agent never sends another command, the suspended
+        request threads must not stay frozen: after `resume_after`
+        seconds of inactivity the VM is resumed and the incident is
+        reported as an error."""
+        self._cancel_hold_guard()
+        if not self._resume_after:
+            return
+        self._hold_timer = threading.Timer(self._resume_after,
+                                           self._auto_release)
+        self._hold_timer.start()
+
+    def _cancel_hold_guard(self):
+        if self._hold_timer is not None:
+            self._hold_timer.cancel()
+            self._hold_timer = None
+
+    def _auto_release(self):
+        self._hold_timer = None
+        stop = self.session.stop
+        if stop is None or getattr(stop, "reason", None) == "vm_death":
+            return
+        self.session.stop = None
+        self.session.current_frames = None
+        self.session.current_thread = None
+        self.session.current_frame_index = 0
+        try:
+            self.session.resume()
+        except (JDWPError, VmDead):
+            pass
+        self.error(f"stop held for {self._resume_after:.0f}s without a "
+                   f"command — VM auto-resumed so request threads are not "
+                   f"blocked")
+
+    def close(self):
+        self._cancel_hold_guard()
 
     # ------------------------------------------------------------ dispatch
 
@@ -67,20 +114,27 @@ class Runner:
         if handler is None:
             self.error(f"unknown command {cmd!r} (try 'help')")
             return None
+        # Any command is agent activity — release the hold guard so a slow
+        # interactive session never auto-resumes mid-inspection.
+        self._cancel_hold_guard()
         try:
             return handler(line[len(cmd):].strip())
         except (EvalError, NoStopError, BreakpointError, JDWPError, VmDead,
-                ConnectionLost, TimeoutError) as exc:
+                ConnectionLost, TimeoutError, ValueError, OSError) as exc:
             self.error(str(exc))
             return None
-        except OSError as exc:
-            self.error(str(exc))
             return None
 
     # ------------------------------------------------------------- events
 
     def _on_trace(self, bp, thread_id, desc):
-        """Tracepoint hit (suspend none): log only."""
+        """Tracepoint hit (suspend none): log only.  Also used by the
+        session to surface background errors — those pass a non-breakpoint
+        as `bp` and must not crash the event consumer."""
+        if not hasattr(bp, "describe"):
+            message = desc.get("error") if isinstance(desc, dict) else None
+            self.error(message or "session background error")
+            return
         thread = self.session.thread_name(thread_id)
         if self.json_mode:
             self.j({"event": "trace", "bp": bp.describe(), "thread": thread,
@@ -136,6 +190,9 @@ class Runner:
                     marker = "▸" if n == line else " "
                     print(f"  {marker}{n:5d} {text}")
             print(flush=True)
+        # The VM is suspended with request threads frozen — arm the guard
+        # so an agent that never sends a command cannot hold them forever.
+        self._arm_hold_guard()
 
     def _wait_cycle(self, first_ev, timeout=None):
         """Process stops after a resume; swallows condition-false hits.
@@ -152,6 +209,7 @@ class Runner:
                               and time.monotonic() > deadline):
                 self.j({"type": "timeout", "event": "no_stop"})
                 self.p("(no stop — timed out)")
+                self.failures += 1
                 return None
             stop = self.session.on_stop(ev)
             if stop is not None:
@@ -267,7 +325,12 @@ class Runner:
         raise BreakpointError(f"unknown bp subcommand {sub!r}")
 
     def _bp_add(self, args):
-        opts = self._bp_parser().parse_args(args)
+        try:
+            opts = self._bp_parser().parse_args(args)
+        except SystemExit as exc:
+            raise BreakpointError(
+                f"bp add: invalid arguments (exit {exc.code}) — see "
+                f"'bp add --help' usage") from None
         if bool(opts.class_name) == bool(opts.file):
             raise BreakpointError("bp add needs exactly one of --class/--file")
         if opts.class_name:
@@ -446,7 +509,10 @@ class Runner:
             depth = int(depth_group)
         tag, value = self._eval_expr(expr_text)
         if not values.is_object_tag(tag) or value == 0:
-            self.p(f"= {values.format_value(self.session, tag, value)}")
+            text = values.format_value(self.session, tag, value)
+            self.j({"type": "inspect", "expression": expr_text,
+                    "depth": depth, "value": text})
+            self.p(f"= {text}")
             return None
         lines = values.inspect(self.session, tag, value, depth=depth)
         self.j({"type": "inspect", "expression": expr_text, "depth": depth,

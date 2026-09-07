@@ -352,6 +352,9 @@ class DebuggerSession:
         """(frame_id, Location) of the selected frame of the current thread."""
         self._require_position()
         frames = self.frames_of(self.current_thread)
+        if not frames:
+            raise NoStopError("no frames on the current thread "
+                              "(native or early thread state)")
         idx = min(self.current_frame_index, len(frames) - 1)
         self.current_frame_index = idx
         return frames[idx]
@@ -539,9 +542,10 @@ class DebuggerSession:
         # drop any cached stack so evaluation starts from a fresh fetch.
         self.current_frames = None
         bp = self.bps.by_request.get(ev.request_id) if self.bps else None
-        if bp is not None and getattr(bp, "removed", False):
-            # Ghost re-fire of a breakpoint cleared while the thread was
-            # suspended on it (JVMTI defers the removal).  Swallow it.
+        if bp is not None and (getattr(bp, "removed", False) or not bp.enabled):
+            # Ghost re-fire of a breakpoint cleared or disabled while the
+            # thread was suspended on it (JVMTI defers the removal).
+            # Swallow it — a disabled breakpoint must never stop again.
             if bp.suspend != "none":
                 self.resume()
             return None
@@ -622,11 +626,13 @@ class DebuggerSession:
         if thread_id is None:
             raise EvalError("no current thread to invoke on (must be stopped)")
         method_id, decl = resolve_method(self, class_info, name, args, static=False)
-        tag, value = C.object_invoke_method(self.conn, obj_id, thread_id,
-                                            decl.type_id, method_id, args)
+        tag, value, exception_obj = C.object_invoke_method(
+            self.conn, obj_id, thread_id, decl.type_id, method_id, args)
         # The invocation's wrapper frame renumbers the target thread's
         # frame ids — drop the cached frame list.
         self.current_frames = None
+        if exception_obj:
+            raise EvalError(EXCEPTION_MESSAGE(self, exception_obj))
         if tag == C.TAG_OBJECT and value and is_throwable(self, value):
             raise EvalError(EXCEPTION_MESSAGE(self, value))
         return tag, value
