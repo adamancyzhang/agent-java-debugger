@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Thin wrapper: runs the ajd package from the repository checkout.
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+exec env PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}" python3 -m ajd "$@"
