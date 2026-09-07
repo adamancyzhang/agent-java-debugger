@@ -1,6 +1,6 @@
 ---
 name: agent-java-debugger
-description: Java JVM debugging CLI for AI agents. Attach to any JVM over its JDWP port (-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:15555) and debug it from the terminal or from agent scripts: source-mapped breakpoints (global / thread-level / conditional / tracepoint / once / per-thread), line stepping (step into / over / out), stack frames, locals, in-memory object inspection, and evaluating expressions with real method calls inside the target JVM. Use when the user asks to debug a Java service, set a breakpoint on a remote JVM, trace why a request behaves unexpectedly, inspect variables/objects at a crash site, verify code paths triggered by an API call, or debug anything on a JVM started with a JDWP port. Emits machine-readable JSON events (--json) for agent consumption. Requires Python 3.10+ on the machine running the CLI; the debugged JVM can be anywhere (any OS, any CPU). For oinone platform apps (pamirs-designer, gql-driven backends), also load the companion skill via `agent-java-debugger skills oinone`.
+description: Java JVM debugging CLI for AI agents. Attach to any JVM over its JDWP port (-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:15555) and debug it from the terminal or from agent scripts: source-mapped breakpoints (global / thread-level / conditional / tracepoint / once / per-thread), line stepping (step into / over / out), stack frames, locals, in-memory object inspection, and evaluating expressions with real method calls inside the target JVM. Use when the user asks to debug a Java service, set a breakpoint on a remote JVM, trace why a request behaves unexpectedly, inspect variables/objects at a crash site, verify code paths triggered by an API call, or debug anything on a JVM started with a JDWP port. Triggers include requests to "set a breakpoint at ...", "step through this method", "what is the value of X at line Y", "is this method ever called", "where does this request go", "inspect this variable at the crash site", or "verify this code path with a real request". Emits machine-readable JSON events (--json) for agent consumption with trustworthy exit codes (0 = all commands succeeded, 1 = any error/timeout). A stop-hold guard (--resume-after) auto-resumes the VM if no command arrives, so forgotten breakpoints never freeze request threads. Requires Python 3.10+ on the machine running the CLI; the debugged JVM can be anywhere (any OS, any CPU). The debugger only observes and inspects — it never kills the target. For oinone platform apps (pamirs-designer, gql-driven backends), also load the companion skill via `agent-java-debugger skills oinone`.
 allowed-tools: Bash(agent-java-debugger:*)
 ---
 
@@ -33,6 +33,22 @@ agent-java-debugger attach --host 127.0.0.1 --port 15555 \
 ```
 
 Each `--exec` runs one command; `continue`/`next`/`step`/`finish` block until the next stop or the `--timeout` deadline. `--json` emits one JSON document per event/result on stdout — parse it line by line. Without `--exec`, an interactive REPL starts (`attach` alone); pipe commands to stdin to script it.
+
+Key attach flags:
+
+| Flag | Meaning |
+|---|---|
+| `--source-dir <dir>` | source tree(s) for file breakpoints and the `source` command (repeatable) |
+| `--timeout <s>` | deadline for waiting on the next stop (default 60) |
+| `--cmd-timeout <s>` | per-command reply timeout (default 15) |
+| `--resume-after <s>` | **stop-hold guard**: auto-resume a held stop after N seconds of inactivity so request threads are never blocked (default 60; `0` disables) |
+
+### Agent-mode conventions
+
+* **Exit code**: `0` = every command succeeded and no wait timed out; `1` = any command errored or a wait timed out; `2` = usage/connection failure; `130` = Ctrl-C. Trust a non-zero code as "the script failed" — don't parse stderr for it.
+* **Stop-hold guard**: a breakpoint suspends request threads in the target. If no command arrives for `--resume-after` seconds, the session auto-resumes the VM and emits an error event — a forgotten breakpoint can never freeze request threads indefinitely. If you see that error, your script stalled after a stop.
+* **Target exceptions**: a method called by `print`/`inspect` that throws surfaces as an error with the exception text — never as a silent `null`.
+* **Only one debugger per JDWP port** — close the previous session (or `quit`) before attaching again; attach fails with "connection refused" while another session holds the port.
 
 ### 2. Setting breakpoints
 

@@ -28,7 +28,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             data = {"actionQuery": {"countByWrapper": "3" if logged_in else None}}
             self.send_response(200)
             if not logged_in:
-                data["errors"] = [{"message": "用户未登录"}]
+                data["errors"] = [{"message": "not logged in"}]
         else:
             data = {"echo": query}
             self.send_response(200)

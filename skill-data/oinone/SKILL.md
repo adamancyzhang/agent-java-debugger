@@ -1,6 +1,6 @@
 ---
 name: agent-java-debugger-oinone
-description: oinone platform debugging companion for agent-java-debugger. Covers the oinone gql protocol (model/functions, login, request format), the oinone CLI (login / exec / count with cookie-session handling), and ready-made debugging recipes for oinone apps (pamirs-designer, gql-driven backends): login and trigger requests, the per-request breakpoint on DefaultFunctionResolverApi, schema introspection, and the e2e trigger loop. Use when the user asks to debug or drive an oinone/pamirs application, invoke a model function or action via gql, log in to a pamirs backend, or understand why an oinone request behaves unexpectedly. Load via `agent-java-debugger skills oinone`; pair with the base agent-java-debugger skill for all debugger mechanics.
+description: oinone platform debugging companion for agent-java-debugger. Covers the oinone gql protocol (model/functions, login, request format), the oinone CLI (login / exec / count with cookie-session handling), and ready-made debugging recipes for oinone apps (pamirs-designer, gql-driven backends): login and trigger requests, the per-request breakpoint on DefaultFunctionResolverApi, schema introspection, and the e2e trigger loop. Use when the user asks to debug or drive an oinone/pamirs application, invoke a model function or action via gql, log in to a pamirs backend, replay an export/action the user clicked in the UI, count or query records of a model, discover what models exist on the backend, or understand why an oinone request behaves unexpectedly. Triggers include requests to "call this model function", "trigger this export via API", "log in to the pamirs backend", or "drive the app instead of clicking". Load via `agent-java-debugger skills oinone`; pair with the base agent-java-debugger skill for all debugger mechanics.
 allowed-tools: Bash(agent-java-debugger:*)
 ---
 
@@ -125,7 +125,7 @@ agent-java-debugger gql --url http://host:8091/pamirs/api \
 agent-java-debugger gql --url … --query '{ __schema { types { name kind } } }'
 
 # is my session valid?
-agent-java-debugger oinone count --url … --model action        # 未登录 error → re-login
+agent-java-debugger oinone count --url … --model action        # not-logged-in error → re-login
 
 # invoke a mutation-style function (create/update/action)
 agent-java-debugger oinone exec --url … --model designerModel \
