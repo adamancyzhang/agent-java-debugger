@@ -12,8 +12,10 @@
 const { spawnSync } = require("child_process");
 const path = require("path");
 
-const PACKAGE_ROOT = path.resolve(__dirname, "..");
-const AJD_DIR = path.join(PACKAGE_ROOT, "ajd");
+// Shipped as dist/cli.js next to dist/ajd and dist/skill-data — resolve
+// everything relative to this file's own directory.
+const DIST_DIR = __dirname;
+const AJD_DIR = path.join(DIST_DIR, "ajd");
 
 function probe(cmd, extraArgs) {
   try {
@@ -60,7 +62,7 @@ function main() {
   const sep = process.platform === "win32" ? ";" : ":";
   const env = { ...process.env };
   env.PYTHONPATH = AJD_DIR + (env.PYTHONPATH ? sep + env.PYTHONPATH : "");
-  env.AJD_ROOT = PACKAGE_ROOT;  // skill-data/ resolution for `ajd skills`
+  env.AJD_ROOT = DIST_DIR;  // skill-data/ resolution for `ajd skills`
   const result = spawnSync(py.cmd, [...py.args, "-m", "ajd", ...process.argv.slice(2)],
     { stdio: "inherit", env, windowsHide: false });
   if (result.error) {
