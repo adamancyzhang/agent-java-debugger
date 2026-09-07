@@ -10,7 +10,8 @@
   },
   "files": [
     "dist",
-    "skills"
+    "skills",
+    "skill-data"
   ],
   "repository": {
     "type": "git",

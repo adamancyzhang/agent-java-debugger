@@ -110,9 +110,9 @@ function main() {
   checkFrontmatter();
   fs.rmSync(DIST, { recursive: true, force: true });
   copyDir(path.join(ROOT, "ajd"), path.join(DIST, "ajd"));
-  copyDir(path.join(ROOT, "skills"), path.join(DIST, "skills"));
-  copyDir(path.join(ROOT, "skill-data"), path.join(DIST, "skill-data"));
   fs.copyFileSync(path.join(ROOT, "bin", "cli.js"), path.join(DIST, "cli.js"));
+  // skills/ and skill-data/ ship verbatim at the package root — the
+  // launcher resolves AJD_ROOT there, so dist copies would just drift.
 
   const py = findPython();
   if (!py) {
@@ -127,6 +127,25 @@ function main() {
   }
   // compileall leaves bytecode caches behind — never ship them.
   fs.rmSync(path.join(DIST, "ajd", "__pycache__"), { recursive: true, force: true });
+
+  // Smoke-test the staged layout the way the installed launcher runs it:
+  // PYTHONPATH points at dist/ (parent of the ajd package), AJD_ROOT at
+  // the package root where skills/ and skill-data/ ship.  Catches layout
+  // regressions (e.g. a PYTHONPATH pointing INTO the package) at build
+  // time instead of on the user's machine.
+  const smoke = spawnSync(py[0], [...py[1], "-m", "ajd", "--version"], {
+    stdio: "pipe",
+    env: {
+      ...process.env,
+      PYTHONPATH: DIST,
+      AJD_ROOT: ROOT,
+    },
+  });
+  if (smoke.status !== 0) {
+    console.error("build: staged package failed the import smoke test — aborting");
+    console.error(String(smoke.stderr));
+    process.exit(1);
+  }
 
   const count = fs.readdirSync(DIST, { recursive: true }).length;
   console.log(`build: dist/ staged and verified (${count} entries, python ${py[0]})`);
