@@ -46,6 +46,7 @@ function findPython() {
 function main() {
   fs.rmSync(DIST, { recursive: true, force: true });
   copyDir(path.join(ROOT, "ajd"), path.join(DIST, "ajd"));
+  copyDir(path.join(ROOT, "skills"), path.join(DIST, "skills"));
   copyDir(path.join(ROOT, "skill-data"), path.join(DIST, "skill-data"));
   fs.copyFileSync(path.join(ROOT, "bin", "cli.js"), path.join(DIST, "cli.js"));
 

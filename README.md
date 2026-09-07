@@ -152,11 +152,15 @@ Login failures are detected (`errorCode != 0` → stderr + exit 1).
 ### skills
 
 ```bash
-agent-java-debugger skills           # list installed skills
-agent-java-debugger skills oinone    # view the oinone companion skill
+agent-java-debugger skills           # list the main skill + on-demand extensions
+agent-java-debugger skills oinone    # fetch the oinone extension content (offline)
+agent-java-debugger skills get agent-java-debugger   # this skill's full text
 ```
 
-Claude Code skills for agent usage ship in `skill-data/` — the generic [`agent-java-debugger`](skill-data/agent-java-debugger/SKILL.md) skill and the [`oinone` companion](skill-data/oinone/SKILL.md).
+Agent integration ships in two parts so that only **one skill** is loaded into the agent context:
+
+* [`skills/agent-java-debugger/SKILL.md`](skills/agent-java-debugger/SKILL.md) — the tool's own skill: breakpoints, stepping, inspection, agent-mode conventions. This is the only skill an agent registers.
+* [`skill-data/`](skill-data/) — on-demand extension content (the [`oinone` companion](skill-data/oinone/SKILL.md): gql protocol, login, pamirs-designer recipes). An agent working on an oinone project fetches it with `agent-java-debugger skills oinone` — it costs no context until needed and works offline.
 
 ## Expression language (conditions, print, inspect)
 

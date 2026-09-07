@@ -1,6 +1,6 @@
 {
   "name": "@adamancyzhang/agent-java-debugger",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "ajd — a JDWP CLI debugger for remote JVMs: source-mapped breakpoints (global/thread-level/conditional), line stepping, in-memory inspection, gql triggering, agent-friendly JSON output. Zero Python dependencies; requires Python >= 3.10 on the machine that runs the CLI (the debugged JVM can be anywhere).",
   "bin": {
     "agent-java-debugger": "dist/cli.js"
@@ -9,7 +9,8 @@
     "node": ">=14"
   },
   "files": [
-    "dist"
+    "dist",
+    "skills"
   ],
   "repository": {
     "type": "git",

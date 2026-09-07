@@ -1,6 +1,6 @@
 ---
 name: agent-java-debugger
-description: Java JVM debugging CLI for AI agents. Attach to any JVM over its JDWP port (-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:15555) and debug it from the terminal or from agent scripts: source-mapped breakpoints (global / thread-level / conditional / tracepoint / once / per-thread), line stepping (step into / over / out), stack frames, locals, in-memory object inspection, and evaluating expressions with real method calls inside the target JVM. Use when the user asks to debug a Java service, set a breakpoint on a remote JVM, trace why a request behaves unexpectedly, inspect variables/objects at a crash site, verify code paths triggered by an API call, or debug anything on a JVM started with a JDWP port. Triggers include requests to "set a breakpoint at ...", "step through this method", "what is the value of X at line Y", "is this method ever called", "where does this request go", "inspect this variable at the crash site", or "verify this code path with a real request". Emits machine-readable JSON events (--json) for agent consumption with trustworthy exit codes (0 = all commands succeeded, 1 = any error/timeout). A stop-hold guard (--resume-after) auto-resumes the VM if no command arrives, so forgotten breakpoints never freeze request threads. Requires Python 3.10+ on the machine running the CLI; the debugged JVM can be anywhere (any OS, any CPU). The debugger only observes and inspects — it never kills the target. For oinone platform apps (pamirs-designer, gql-driven backends), also load the companion skill via `agent-java-debugger skills oinone`.
+description: Java JVM debugging CLI for AI agents. Attach to any JVM over its JDWP port (-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:15555) and debug it from the terminal or from agent scripts: source-mapped breakpoints (global / thread-level / conditional / tracepoint / once / per-thread), line stepping (step into / over / out), stack frames, locals, in-memory object inspection, and evaluating expressions with real method calls inside the target JVM. Use when the user asks to debug a Java service, set a breakpoint on a remote JVM, trace why a request behaves unexpectedly, inspect variables/objects at a crash site, verify code paths triggered by an API call, or debug anything on a JVM started with a JDWP port. Triggers include requests to "set a breakpoint at ...", "step through this method", "what is the value of X at line Y", "is this method ever called", "where does this request go", "inspect this variable at the crash site", or "verify this code path with a real request". Emits machine-readable JSON events (--json) for agent consumption with trustworthy exit codes (0 = all commands succeeded, 1 = any error/timeout). A stop-hold guard (--resume-after) auto-resumes the VM if no command arrives, so forgotten breakpoints never freeze request threads. Requires Python 3.10+ on the machine running the CLI; the debugged JVM can be anywhere (any OS, any CPU). The debugger only observes and inspects — it never kills the target. For oinone platform apps (pamirs-designer, gql-driven backends), fetch the on-demand extension content with `agent-java-debugger skills oinone` (works offline; the extension is not a separately loaded skill).
 allowed-tools: Bash(agent-java-debugger:*)
 ---
 
@@ -105,7 +105,7 @@ agent-java-debugger gql --url http://host/api/graphql --query '{ viewer { id } }
 # inside a session:  gql <url> <query> [--vars JSON]
 ```
 
-Classic e2e loop: set a breakpoint in a background `attach --exec` run → fire the gql request → the stop lands with the request's stack frame → inspect. Platform-specific recipes live in the companion skills (`agent-java-debugger skills` lists them; for oinone apps: `agent-java-debugger skills oinone`, and the `oinone login/exec/count` subcommands).
+Classic e2e loop: set a breakpoint in a background `attach --exec` run → fire the gql request → the stop lands with the request's stack frame → inspect. Platform-specific recipes (oinone/pamirs login, trigger, per-request breakpoint) are on-demand extension content — fetch them with `agent-java-debugger skills oinone` (works offline); the `oinone login/exec/count` subcommands are always available.
 
 ### 6. Interactive REPL
 
@@ -143,8 +143,15 @@ Stop presentation shows the hit (`■ Breakpoint #2 "name" hit — thread "…" 
 - **Latency-sensitive app:** always prefer `--suspend thread` over `all`; never leave breakpoints armed — `bp clear` before detaching.
 - **Class not loaded yet?** set the breakpoint anyway; it resolves automatically when the class loads.
 
-## Companion skills and reference
+## Extension content (on-demand, offline)
 
-- `agent-java-debugger skills` — list installed skills; `skills oinone` — oinone platform debugging (gql protocol, login, model functions, pamirs-designer recipes).
+Only this one skill is loaded into the agent context. Extra platform knowledge ships with the package as on-demand extension content — look it up when you actually work on such a platform, instead of paying context cost upfront:
+
+- `agent-java-debugger skills` — list available skills + extensions
+- `agent-java-debugger skills oinone` — oinone platform debugging (gql protocol, login, model functions, pamirs-designer recipes)
+- `agent-java-debugger skills get agent-java-debugger` — this skill's full text
+
+## Reference
+
 - `ajd` package modules: `jdwp.py` (transport) · `commands.py` (JDWP command set + value codec) · `events.py` · `session.py` (engine) · `breakpoints.py` · `evalexpr.py` (expression evaluator) · `values.py` (formatting/inspect) · `sourcemap.py` · `gql.py` · `oinone.py` · `repl.py` (command runner) · `cli.py`
 - Full protocol notes: `README.md` "Design notes" (reply header error codes, InvokeMethod options field, frame-id invalidation after invoke, ghost-hit suppression).
