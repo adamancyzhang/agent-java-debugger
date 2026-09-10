@@ -1,6 +1,6 @@
 {
   "name": "@adamancyzhang/agent-java-debugger",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "JDWP CLI debugger for remote JVMs — breakpoints, stepping, and in-memory inspection for AI agents (pure Python stdlib; requires Python >= 3.10).",
   "bin": {
     "agent-java-debugger": "dist/cli.js"
@@ -34,6 +34,7 @@
   },
   "scripts": {
     "build": "node scripts/build.js",
+    "check-skill": "node scripts/check-skill.mjs",
     "prepublishOnly": "npm run build",
     "test": "tests/e2e_sample.sh"
   }

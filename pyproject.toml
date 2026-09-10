@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agent-java-debugger"
-version = "0.2.1"
+version = "0.2.2"
 description = "ajd — a JDWP CLI debugger for remote JVMs: source-mapped breakpoints, stepping, in-memory inspection, agent-friendly JSON output"
 requires-python = ">=3.10"
 dependencies = []
